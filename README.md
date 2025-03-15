@@ -3,13 +3,15 @@
 ## 📊 Visão Geral
 Projeto de machine learning desenvolvido para criar um modelo de score de crédito para aplicações de cartão de crédito. O modelo prevê o risco de crédito utilizando dados dos clientes e histórico de transações.
 
+
+
 ## 🛠️ Tecnologias Utilizadas
 - Python 3.8+
 - Principais Bibliotecas:
   - scikit-learn
   - pycaret
   - pandas
-  - streamlit
+  - streamlit (<video controls src="https://github.com/AlexSAssuncao/Final_CreditScore_EBAC/blob/main/Gravar_2025_03_15_03_37_34_145.mp4" title="Title"></video>)
 
 ## 🎯 Funcionalidades Principais
 - Previsão de risco de crédito
