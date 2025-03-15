@@ -121,7 +121,7 @@ def main():
         if model_choice == 'LightGBM':
             model_saved = load_model('Final_LightGBM_Model_20250315')
         elif model_choice == 'Regressão Logística':
-            model_saved = pickle.load(open('model_final_pipe.pkl', 'rb'))
+            model_saved = load_model('model_final_pipe')
 
         if start_analysis:
             # Aplicar o pré-processamento
