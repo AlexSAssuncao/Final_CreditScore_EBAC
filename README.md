@@ -13,7 +13,13 @@ Projeto de machine learning desenvolvido para criar um modelo de score de crédi
   - pandas
   - streamlit
 
-[![Demo Video](caminho/para/uma/imagem.png)](<video controls src="https://github.com/AlexSAssuncao/Final_CreditScore_EBAC/blob/main/Gravar_2025_03_15_03_37_34_145.mp4" title="URL_DO_VIDEO"></video>)
+    https://github.com/user-attachments/assets/6a41cf23-eeda-400a-b8f3-c82ef789bc1b
+
+
+
+
+
+
 
 ## 🎯 Funcionalidades Principais
 - Previsão de risco de crédito
