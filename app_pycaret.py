@@ -1,90 +1,84 @@
 import pandas as pd
 import numpy as np
 import streamlit as st
-import pickle
 from pycaret.classification import load_model, predict_model
 from io import BytesIO
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, FunctionTransformer
 from sklearn.decomposition import PCA
-from sklearn.preprocessing import FunctionTransformer
 from sklearn.pipeline import Pipeline
+from typing import Tuple, List
 
-# Funções de conversão de DataFrame
-@st.cache_data
-def convert_df(df):
-    return df.to_csv(index=False).encode('utf-8')
+# Configurações globais
+SAMPLE_SIZE = 50000
+N_FEATURES = 8
+N_COMPONENTS = 5
+MODELS = {
+    'LightGBM': 'Final_LightGBM_Model_20250315',
+    'Regressão Logística': 'model_final_pipe'
+}
 
+# Cache das funções de conversão
 @st.cache_data
-def to_excel(df):
+def convert_to_format(df: pd.DataFrame, format: str = 'csv') -> bytes:
+    """Converte DataFrame para CSV ou Excel."""
+    if format == 'csv':
+        return df.to_csv(index=False).encode('utf-8')
+    
     output = BytesIO()
-    writer = pd.ExcelWriter(output, engine='xlsxwriter')
-    df.to_excel(writer, index=False, sheet_name='Sheet1')
-    writer.close()
-    processed_data = output.getvalue()
-    return processed_data
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name='Sheet1')
+    return output.getvalue()
 
-def substituir_nulos(df):
-    df.dropna(inplace=True)
-    return df
+class DataPreprocessor:
+    @staticmethod
+    def clean_data(df: pd.DataFrame) -> pd.DataFrame:
+        """Remove nulos e outliers."""
+        df = df.dropna()
+        
+        for col in df.select_dtypes(include=[np.number]).columns:
+            Q1, Q3 = df[col].quantile([0.25, 0.75])
+            IQR = Q3 - Q1
+            mask = (df[col] >= (Q1 - 1.5 * IQR)) & (df[col] <= (Q3 + 1.5 * IQR))
+            df = df[mask]
+        
+        return df
 
-def remover_outliers(df):
-    df = df.copy()
-    for col in df.select_dtypes(include=[np.number]).columns:
-        Q1 = df[col].quantile(0.25)
-        Q3 = df[col].quantile(0.75)
-        IQR = Q3 - Q1
-        df = df[(df[col] >= (Q1 - 1.5 * IQR)) & (df[col] <= (Q3 + 1.5 * IQR))]
-    return df
+    @staticmethod
+    def feature_engineering(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Series]:
+        """Prepara features para modelagem."""
+        y = df['mau']
+        X = pd.get_dummies(df.drop(columns=['mau']), drop_first=True)
+        
+        # Seleção de features
+        rf = RandomForestClassifier(n_jobs=-1)
+        rf.fit(X, y)
+        top_features = pd.Series(rf.feature_importances_, index=X.columns)\
+                        .nlargest(N_FEATURES)\
+                        .index
+        X = X[top_features]
+        
+        # PCA
+        scaler = StandardScaler()
+        pca = PCA(n_components=N_COMPONENTS)
+        X_pca = pca.fit_transform(scaler.fit_transform(X))
+        X_transformed = pd.DataFrame(
+            X_pca, 
+            columns=[f'PC{i+1}' for i in range(N_COMPONENTS)]
+        )
+        
+        return X_transformed, y
 
-def criar_dummies(df):
-    return pd.get_dummies(df, drop_first=True)
+    def process(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Pipeline completo de preprocessamento."""
+        df = self.clean_data(df)
+        X_transformed, y = self.feature_engineering(df)
+        X_transformed['mau'] = y.reset_index(drop=True)
+        return X_transformed
 
-def selecionar_variaveis(X, y, n_features=8):
-    model = RandomForestClassifier()
-    model.fit(X, y)
-    importances = model.feature_importances_
-    indices = np.argsort(importances)[-n_features:]  # Seleciona os índices das n_features mais importantes
-    selected_columns = X.columns[indices]  # Nomes das variáveis selecionadas
-    print("Variáveis selecionadas:", selected_columns)
-    return X[selected_columns]
-
-def aplicar_pca(X, n_components=5):
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
-    pca = PCA(n_components=n_components)
-    X_pca = pca.fit_transform(X_scaled)
-    return pd.DataFrame(X_pca, columns=[f'PC{i+1}' for i in range(n_components)])
-
-def preprocessamento(df):
-    df = substituir_nulos(df)
-    df = remover_outliers(df)
-    y = df['mau']
-    X = df.drop(columns=['mau'])
-    X = criar_dummies(X)    
-    X_selecionado = selecionar_variaveis(X, y, n_features=8)
-    X_pca = aplicar_pca(X_selecionado, n_components=5)
-    X_pca['mau'] = y.reset_index(drop=True)
-    return X_pca
-
-def preprocessamento_transformer(df):
-    return preprocessamento(df)
-
-def main():
-    st.set_page_config(page_title='PyCaret', layout="wide", initial_sidebar_state='expanded')
-
-    st.write("""## Credit Scoring com Pycaret """)
-    st.write("Faça o upload dos dados e escolha o modelo a ser ajustado ao lado.")
-    st.markdown("---")
-
-    st.sidebar.write("## Suba o arquivo")
-    data_file_1 = st.sidebar.file_uploader("Bank Credit Dataset", type=['csv', 'ftr'])
-
-    model_choice = st.sidebar.selectbox("Escolha o modelo", ['LightGBM', 'Regressão Logística'])
-    start_analysis = st.sidebar.button("Analyze!")
-
-
-    footer_html = """
+def create_footer():
+    """Cria o footer da aplicação."""
+    return """
         <style>
             footer {
                 position: fixed;
@@ -101,55 +95,67 @@ def main():
             <p>Projeto EBAC - Ciência de Dados | Alex Silva de Assunção</p>
         </footer>
     """
-    st.markdown(footer_html, unsafe_allow_html=True)
 
-    # Criação da pipeline
-    preprocessamento_pipeline = Pipeline([
-        ('preprocessamento', FunctionTransformer(preprocessamento_transformer, validate=False)),
-    ])
+def main():
+    # Configuração da página
+    st.set_page_config(
+        page_title='Credit Scoring - PyCaret',
+        layout="wide",
+        initial_sidebar_state='expanded'
+    )
 
-    if data_file_1 is not None:
-        df_credit = pd.read_feather(data_file_1)
-        df_credit.drop(columns=['data_ref', 'index'], inplace=True)
-        df_credit = df_credit.sample(50000)
-        X = df_credit.drop(columns='mau')
-        
-        st.write("Dados originais:")
-        st.write(df_credit.head())
+    # Interface principal
+    st.write("## Credit Scoring com Pycaret")
+    st.write("Faça o upload dos dados e escolha o modelo a ser ajustado ao lado.")
+    st.markdown("---")
 
-        # Carregar o pré-processamento e o modelo
-        if model_choice == 'LightGBM':
-            model_saved = load_model('Final_LightGBM_Model_20250315')
-        elif model_choice == 'Regressão Logística':
-            model_saved = load_model('model_final_pipe')
+    # Sidebar
+    with st.sidebar:
+        st.write("## Suba o arquivo")
+        data_file = st.file_uploader("Bank Credit Dataset", type=['csv', 'ftr'])
+        model_choice = st.selectbox("Escolha o modelo", list(MODELS.keys()))
+        start_analysis = st.button("Analyze!")
 
-        if start_analysis:
-            # Aplicar o pré-processamento
-            try:
-                df_transformed = preprocessamento_pipeline.transform(df_credit)
-                X_transformed = df_transformed.drop(columns='mau')
+    # Footer
+    st.markdown(create_footer(), unsafe_allow_html=True)
+
+    if data_file is not None:
+        try:
+            # Carregamento e preparação dos dados
+            df_credit = pd.read_feather(data_file)
+            df_credit = df_credit.drop(columns=['data_ref', 'index'])\
+                                .sample(SAMPLE_SIZE)
+            
+            st.write("Dados originais:")
+            st.write(df_credit.head())
+
+            if start_analysis:
+                # Preprocessamento
+                preprocessor = DataPreprocessor()
+                df_transformed = preprocessor.process(df_credit)
                 st.write("Dados transformados:", df_transformed.head())
+
+                # Predição
+                model = load_model(MODELS[model_choice])
                 if model_choice == 'LightGBM':
-                    predict = predict_model(model_saved, data=X)
-                    st.write("Previsões:", predict.head())
-                    df_xlsx = to_excel(predict)
-                elif model_choice == 'Regressão Logística':
-                    y_pred = model_saved.predict(X_transformed)
-                    idx = X_transformed.index
-                    predict = pd.DataFrame({
-                        'Prediction': y_pred,
-                        'Index': idx
-                    }).set_index('Index')
-                    df_credit['Prediction'] = df_credit.index.map(predict['Prediction'])
-                    st.write("Previsões:", df_credit.head())
-                    df_xlsx = to_excel(df_credit)
+                    predictions = predict_model(model, data=df_credit.drop(columns='mau'))
+                else:
+                    y_pred = model.predict(df_transformed.drop(columns='mau'))
+                    predictions = df_credit.copy()
+                    predictions['Prediction'] = y_pred
 
-
-
+                st.write("Previsões:", predictions.head())
                 
-                st.download_button(label='📥 Download', data=df_xlsx, file_name='predict.xlsx')
-            except Exception as e:
-                st.error(f"Erro ao processar os dados: {e}")
+                # Download
+                excel_file = convert_to_format(predictions, 'excel')
+                st.download_button(
+                    label='📥 Download',
+                    data=excel_file,
+                    file_name='predictions.xlsx'
+                )
+
+        except Exception as e:
+            st.error(f"Erro durante o processamento: {e}")
 
 if __name__ == '__main__':
     main()
